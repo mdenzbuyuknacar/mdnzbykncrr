@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>İnteraktif Sanat - İkiz Ayna (Yakın Çekim)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        video {
+            display: none;
+        }
+    </style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <video id="input_video" autoplay playsinline></video>
+    <canvas id="output_canvas"></canvas>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        const cutoutCanvas = document.createElement('canvas');
+        const cutoutCtx = cutoutCanvas.getContext('2d');
+
+        function onResults(results) {
+            const W = videoElement.videoWidth;
+            const H = videoElement.videoHeight;
+            
+            canvasElement.width = W;
+            canvasElement.height = H;
+            
+            if (cutoutCanvas.width !== W) {
+                cutoutCanvas.width = W;
+                cutoutCanvas.height = H;
+            }
+
+            // 1. ADIM: SENİ ARKA PLANDAN KESİP ÇIKARMA 
+            cutoutCtx.clearRect(0, 0, W, H);
+            cutoutCtx.drawImage(results.segmentationMask, 0, 0, W, H);
+            cutoutCtx.globalCompositeOperation = 'source-in';
+            cutoutCtx.drawImage(results.image, 0, 0, W, H);
+            cutoutCtx.globalCompositeOperation = 'source-over';
+
+
+            // 2. ADIM: EKRANI SİYAH YAPMA
+            canvasCtx.fillStyle = 'black';
+            canvasCtx.fillRect(0, 0, W, H);
+
+
+            // 3. ADIM: İKİ KLONU YAKINLAŞTIRIP EKRANA ÇİZME
+            
+            // Ekranda daha ihtişamlı durmanız için boyutu büyüttük (0.65'ten 0.85'e çıkardık)
+            const scale = 0.85; 
+            const drawW = W * scale;
+            const drawH = H * scale;
+            
+            // Aşağı kaymayı iptal edip, ekranın alt zeminine kusursuz hizaladık
+            const yPos = H - drawH; 
+            
+            // "Çok uzaklar yakınlaşsın" ayarı (shift):
+            // Klonların ekranın GÖBEĞİNDEN ne kadar uzağa kaydırılacağı (piksel)
+            // Eğer daha da yakınlaşmak istersen bu sayıyı 150, 100 gibi küçültebilirsin.
+            const shift = 180; 
+
+            // Ekranda klonların duracağı merkez noktaları hesaplıyoruz
+            const leftX = (W / 2) - (drawW / 2) - shift;
+            const rightX = (W / 2) - (drawW / 2) + shift;
+
+            // --- 1. KLON (SOLDAKİ - NORMAL) ---
+            canvasCtx.drawImage(cutoutCanvas, leftX, yPos, drawW, drawH);
+
+            // --- 2. KLON (SAĞDAKİ - AYNALANMIŞ/SİMETRİK) ---
+            canvasCtx.save();
+            
+            // Sağdaki klonun tam merkezine gidip ters çeviriyoruz
+            canvasCtx.translate(rightX + drawW/2, 0); 
+            canvasCtx.scale(-1, 1); 
+            
+            // Çizimi gerçekleştiriyoruz
+            canvasCtx.drawImage(cutoutCanvas, -drawW/2, yPos, drawW, drawH);
+            
+            canvasCtx.restore(); 
+        }
+
+        const selfieSegmentation = new SelfieSegmentation({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`;
+        }});
+        
+        selfieSegmentation.setOptions({
+            modelSelection: 1, 
+        });
+        selfieSegmentation.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await selfieSegmentation.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        camera.start();
+    </script>
+
+</body>
+</html>
